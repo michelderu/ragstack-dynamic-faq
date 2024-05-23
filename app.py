@@ -1,7 +1,7 @@
 import streamlit as st
 import os
 import tempfile
-import asyncio
+import hmac
 
 from langchain_openai import OpenAIEmbeddings
 from langchain_openai import ChatOpenAI
@@ -14,8 +14,52 @@ from langchain_community.document_loaders import PyPDFLoader, CSVLoader, WebBase
 from langchain.cache import AstraDBSemanticCache
 from langchain.globals import set_llm_cache
 
+global username
+
+# Close off the app using a password
+def check_password():
+    """Returns `True` if the user had a correct password."""
+
+    def login_form():
+        """Form with widgets to collect user information"""
+        with st.form("credentials"):
+            st.text_input('Username', key='username')
+            st.text_input('Password', type='password', key='password')
+            st.form_submit_button('Login', on_click=password_entered)
+
+    def password_entered():
+        """Checks whether a password entered by the user is correct."""
+        if st.session_state['username'] in st.secrets['passwords'] and hmac.compare_digest(st.session_state['password'], st.secrets.passwords[st.session_state['username']]):
+            st.session_state['password_correct'] = True
+            st.session_state.user = st.session_state['username']
+            del st.session_state['password']  # Don't store the password.
+        else:
+            st.session_state['password_correct'] = False
+
+    # Return True if the username + password is validated.
+    if st.session_state.get('password_correct', False):
+        return True
+
+    # Show inputs for username + password.
+    login_form()
+    if "password_correct" in st.session_state:
+        st.error('😕 User not known or password incorrect')
+    return False
+
+def logout():
+    for key in st.session_state.keys():
+        del st.session_state[key]
+    st.cache_resource.clear()
+    st.cache_data.clear()
+    st.rerun()
+
+# Check for username/password and set the username accordingly
+if not check_password():
+    st.stop()  # Do not continue if check_password is not True.
+username = st.session_state.user
+
 # Draw a title and some markdown
-st.set_page_config(layout="wide")
+st.set_page_config(layout="wide", initial_sidebar_state='collapsed')
 st.image("./assets/postnl.webp", width=150)
 st.title("Post NL Customer Care")
 st.markdown("""Gebruik deze service om direct duidelijke antwoorden op je vragen te krijgen. Plus: een overzichtelijke lijst relevante veel gestelde vragen!""")
@@ -132,8 +176,8 @@ Gebruik alleen de volgende context voor het maken van de lijst met veel gestelde
 {context}
 
 Het resultaat in de volgende structuur:
-Begin met een heading: Relevante veel gestelde vragen
-Gevolgd door repeterend de Vraag in bold en Antwoord in bold op de volgende regel"""
+Vraag: hier komt de vraag (deze regel in bold)
+Antwoord: hier komt het antwoord"""
     return ChatPromptTemplate.from_messages([("system", template)])
 faq_prompt = load_faq_prompt()
 
@@ -183,8 +227,16 @@ def set_cache():
     )
 #set_cache()
 
+# Logout button
+with st.sidebar:
+    st.markdown(f"""Logged in as :orange[{username}]""")
+    logout_button = st.button("Logout")
+    if logout_button:
+        logout()
+
 # Include the upload form for new data to be Vectorized
 with st.sidebar:
+    st.divider()
     uploaded_files = st.file_uploader('Upload a document for additional context', type=['txt', 'pdf', 'csv'], accept_multiple_files=True)
     upload = st.button('Save to Astra DB', key='txt')
     if upload and uploaded_files:
@@ -192,22 +244,20 @@ with st.sidebar:
 
 # Include the upload form for URLs be Vectorized
 with st.sidebar:
+    st.divider()
     urls = st.text_area('Upload a URL for additional context', help='Separate multiple URLs with a comma (,)')
     urls = urls.split(',')
     upload = st.button('Save to Astra DB', key='url')
     if upload and urls:
         vectorize_url(urls, vector_store)
 
-col1, col2 = st.columns(2)
-
-with col1:
-    question = st.text_input(
-        "Wat is je vraag"
-    )
-    answer_placeholder = st.empty()
-
-with col2:
-    faq_placeholder = st.empty()
+st.markdown("### Stel je vraag")
+question = st.text_input(
+    "Wat is je vraag"
+)
+answer_placeholder = st.empty()
+faq_heading = st.empty()
+faq_placeholder = st.empty()
 
 if question:
             
@@ -226,5 +276,6 @@ if question:
     answer_result = answer_chain.invoke({'question': question}, config={'callbacks': [StreamHandler(answer_placeholder)]})
     answer_placeholder.markdown(answer_result.content)
 
+    faq_heading.markdown("""##### En voor uw gemak hierbij ook een relevante FAQ...""")
     faq_result = faq_chain.invoke({'question': question}, config={'callbacks': [StreamHandler(faq_placeholder)]})
     faq_placeholder.markdown(faq_result.content)
