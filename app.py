@@ -134,15 +134,16 @@ def vectorize_url(urls, vector_store):
     )
 
     for url in urls:
+        print (f"Processing {url}")
         try:
             loader = WebBaseLoader(url)
-            docs = loader.load()    
+            docs = loader.load()
             pages = text_splitter.split_documents(docs)
             print (f"Loading from URL: {pages}")
             vector_store.add_documents(pages)  
             st.info(f"{len(pages)} loaded")
         except Exception as e:
-            st.info(f"An error occurred:", e)
+            st.info(f"An error occurred while vectorizing URL {url}:", e)
 
 
 # Cache prompt for future runs
@@ -246,7 +247,7 @@ with st.sidebar:
 with st.sidebar:
     st.divider()
     urls = st.text_area('Upload a URL for additional context', help='Separate multiple URLs with a comma (,)')
-    urls = urls.split(',')
+    urls = urls.replace(' ', '').split(',')
     upload = st.button('Save to Astra DB', key='url')
     if upload and urls:
         vectorize_url(urls, vector_store)
